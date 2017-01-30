@@ -5,24 +5,31 @@
 #include <iomanip>
 #include <cstdlib>
 #include <vector>
+#include <set>
 #include <map>
+#include <sstream>
 #include <fstream>
 #include <streambuf>
 #include <string> 
 #include <cmath>
 #include <ctime>
+#include <algorithm>
 
 const double EulerConstant = std::exp(1.0);
-#define PUNICAO_IMPOSSIVEL 1000
-#define PUNICAO_LVL1 35
-#define PUNICAO_LVL2 30
-#define PUNICAO_LVL3 25
-#define PUNICAO_LVL4 20
-#define PUNICAO_LVL5 15
-#define PUNICAO_LVL6 10
-#define PUNICAO_LVL7 5
+#define PUNICAO_IMPOSSIVEL 100
+#define PUNICAO_LVL1 7
+#define PUNICAO_LVL2 6
+#define PUNICAO_LVL3 5
+#define PUNICAO_LVL4 4
+#define PUNICAO_LVL5 3
+#define PUNICAO_LVL6 2
+#define PUNICAO_LVL7 1
 
 using namespace std;
+
+map<string, int> restricoesMultas;
+map<string, int> mapaTemposAulas; //Mapa que relaciona TemposAulas com um índice | EX: SEGM1 = 0 / SEGM2 = 1 / QUIN4 = 106
+map<int, string> mapaTemposAulasInvertido; //Inversao do de cima
 
 class TempoAula{
 	public:
@@ -63,6 +70,22 @@ class Sala{
 			temposAula.push_back(t);
 			return 0;
 		}
+
+		int buscarRecurso(int id){
+			vector<SalaRecurso>::iterator it;
+			SalaRecurso found(0,0);
+			SalaRecurso temp(0,0);
+
+			for(it=recursos.begin() ; it < recursos.end(); it++) {
+			    temp = *it;
+			    if(temp.idRecurso == id){
+			    	found = temp;
+			    	break;	
+			    }
+			}
+			return found.quantidade;
+		}
+
 		int idSala;
 		string descricao;
 		int numero;
@@ -116,15 +139,36 @@ class Agregacao{
 			idSala = s;
 		}
 		int adicionarRecurso(AgregacaoRecurso r){
-			recursos.push_back(r);
+			if(r.flexibilidade == 4)
+				recursosObrigatorios.push_back(r);
+			else
+				recursosOpcionais.push_back(r);
 			return 0;
 		}
 		int adicionarAulas(Aula a){
 			aulas.push_back(a);
+			idTurmas.push_back(a.idTurma);
+			sort(idTurmas.begin(),idTurmas.end());
+
+			ostringstream oss;
+			oss << a.idCursoPreferencial << "_" << a.periodoCursoPrefencial;
+			periodosPreferenciais.push_back(oss.str());
+
 			return 0;
 		}
 		int adicionarTempoAula(TempoAula t){
 			temposAula.push_back(t);
+
+			ostringstream oss;
+			oss << t.dia << t.horario;
+
+			temposAulaString.push_back(oss.str());
+
+			// int origem = mapaTemposAulas[oss.str()];
+			// for(int i=0; i<tempos; i++){
+			// 	temposAulaString.push_back(mapaTemposAulasInvertido[origem+i]);
+			// }
+			
 			return 0;
 		}
 		int totalAlunos(){
@@ -143,9 +187,13 @@ class Agregacao{
 		int tempos;
 		int idProfessor;
 		int idSala;
-		vector< AgregacaoRecurso > recursos;
+		vector< AgregacaoRecurso > recursosObrigatorios;
+		vector< AgregacaoRecurso > recursosOpcionais;
 		vector< Aula > aulas;
+		vector< int > idTurmas;
+		vector< string > periodosPreferenciais;
 		vector< TempoAula > temposAula;
+		vector< string > temposAulaString;
 };
 
 class Restricoes{
@@ -155,8 +203,6 @@ class Restricoes{
 		int ordem;
 };
 
-map<string, int> mapaTemposAulas; //Mapa que relaciona TemposAulas com um índice | EX: SEGM1 = 0 / SEGM2 = 1 / QUIN4 = 106
-map<int, string> mapaTemposAulasInvertido; //Inversao do de cima
 vector<Agregacao> agregacoes; //Lista de Agregações/Aulas que devem ser alocadas
 vector<Sala> salas; //Lista de Salas Disponíveis
 map<string, int> pesosRestricoes; // Pesos das restricoes
@@ -194,7 +240,7 @@ void marcarTempo(string tag){
   strftime(buffer,80,"%d-%m-%Y %I:%M:%S",timeinfo);
   string str(buffer);
 
-  cout << str;
+  cout << str << endl << endl;
 }
 
 int main(){
@@ -205,38 +251,78 @@ int main(){
 	inicializarMapas();
 	gerarSolucaoInicial();
 
+	//imprimirSolucao(solucao);
+
 	//Simulated Annealing Variaveis
 	int nIter = 0;
-	int maxIter = 2500;
-	float T = 25000;
+	int maxIter = 25000;
+	double T = 35;
 	int delta;
-	float alfa = 0.99;
-	float x;
+	double alfa = 0.99;
+	double x;
+	int sg, sm, ss;
 
-	imprimirSolucao(solucao);
+	//Calculado temperatura inicial
+	int accepted = 0;
+	double perc = 0;
+	// T = 10;
+	//maxIter = 5000;
+	//int deltaSum = 0;
+	// alfa = 0.001;
+	
+
+	//imprimirSolucao(solucao);
 	solucaoMelhor = solucao;
 
-	marcarTempo("INÍCIO SA");
-	while(T>0.0001){
+	//marcarTempo("INÍCIO SA");
+	cout << "Temperatura;Percentual;Aceito;Custo;Restrições Violadas;Salas Virtuais;Sala Pre-Def.;Cap. Sala;Rec. Obr.;Aulas Turma Simult.;Disc. Per. Simult.;Prof. Simult.;Hor. Pre-Def" << endl;
+
+	while(T>0.00001){
+		accepted = 0;
+
 		while(nIter < maxIter){
 			nIter++;
 			geraNovaSolucao();
-			delta = calcularValor(solucaoGerada) - calcularValor(solucao);
+
+			ss = calcularValor(solucao);
+			sg = calcularValor(solucaoGerada);
+			sm = calcularValor(solucaoMelhor);
+
+			delta = sg - ss;
+			// if(delta != 0)
+			// 	cout << "DELTA = " << delta << " | " << nIter  << " | " << T << endl;
 			if(delta < 0){
 				solucao = solucaoGerada;
-				if(calcularValor(solucaoGerada) < calcularValor(solucaoMelhor)){
+
+				//cout << nIter << " | " << sg << " | "<< sm << endl;
+
+				if(sg < sm){
+				//if(calcularValor(solucaoGerada) < calcularValor(solucaoMelhor)){
 					solucaoMelhor = solucaoGerada;
-					cout << "NOVA MELHOR SOLUCAO" << endl << "TEMP = " << T  << " | VALOR = " << calcularValor(solucaoMelhor) << endl;
-					imprimirSolucao(solucaoMelhor);
+					sm = sg;
+					//cout << "NOVA MELHOR SOLUCAO" << endl << "TEMP = " << T  << " | VALOR = " << calcularValor(solucaoMelhor) << endl;
+					//imprimirSolucao(solucaoMelhor);
 				}
+
+				accepted++;
 			}else{
-				srand(time(NULL));
 				x = ((double) rand() / (RAND_MAX));
+
 				if(x < pow(EulerConstant, (double) -delta/T)){
 					solucao = solucaoGerada;
-				}
+					accepted++;
+				}/*else{
+					cout << x << " < " << pow(EulerConstant, (double) -delta/T) << "exp(" << (double) (-delta/T) << ")" << endl;
+				}*/
 			}
+			perc = (accepted*100)/nIter;
+			cout << T << ";" << perc << ";" << accepted << "/" << nIter << ";"<<sm<<";"<<(sm/100)<<";"<<restricoesMultas["SV"]<<";"<<restricoesMultas["SPD"]<<";"<<restricoesMultas["CAP"]<<";"<<restricoesMultas["RECOB"]<<";"<<restricoesMultas["AULSIM"]<<";"<<restricoesMultas["DISCSIM"]<<";"<<restricoesMultas["PROFSIM"]<<";" << restricoesMultas["HORPRE"] << endl;
 		}
+
+		//perc = (accepted*100)/maxIter;
+		//cout << T << ";" << perc << ";" << accepted << "/" << maxIter << ";"<<sm<<";"<<(sm/100)<<";"<<restricoesMultas["SV"]<<";"<<restricoesMultas["SPD"]<<";"<<restricoesMultas["CAP"]<<";"<<restricoesMultas["RECOB"]<<";"<<restricoesMultas["AULSIM"]<<";"<<restricoesMultas["DISCSIM"]<<";"<<restricoesMultas["PROFSIM"]<<";" << restricoesMultas["HORPRE"] << endl;
+		//cout << "TEMPERATURA: " << T << " | PERC: " <<  perc << "% | ACCEPTED: " << accepted << "/" << maxIter << " | VALOR: " << sm <<  endl;
+
 		T = T * alfa;
 		nIter = 0;
 	}
@@ -480,54 +566,175 @@ int calcularValor(vector< vector<Agregacao> > v){
 
 	//[OBRIGATÓRIOS]
 
+	//Todas as aulas devem ser alocadas
+	//Resolvida pela estrutura
+
+	//Uma sala só pode ter uma agregação por vez
+	//Resolvida pela estrutura
+
 	//Nao ter aulas em Salas Virtuais
+	restricoesMultas["SV"] = 0;
 	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
 		for(int i=salas.size(); i<(salas.size()+totalSalasVirtuais); i++){
-			if(v[i][j].idAgregacao != 0) total += PUNICAO_IMPOSSIVEL;
+			if(v[i][j].idAgregacao != 0){
+				total += PUNICAO_IMPOSSIVEL;
+				restricoesMultas["SV"]++;
+			}
 		}
 	}
 
+	restricoesMultas["SPD"] = 0;
+	restricoesMultas["CAP"] = 0;
+	restricoesMultas["RECOB"] = 0;
 	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
 		for(int i=0; i<salas.size(); i++){
 
 			//Aula PODE SER em Sala Pré-definida.
 			if(v[i][j].idSala != 0){ //agregacao exige sala pre-definida
-				if(v[i][j].idSala != salas[i].idSala) total += PUNICAO_IMPOSSIVEL;
+				if(v[i][j].idSala != salas[i].idSala){
+					total += PUNICAO_IMPOSSIVEL;
+					restricoesMultas["SPD"]++;
+				}
 			}
 
-			//Aulas com N alunos devem ser alocadas em salas com capacidade X, tal que X >= N. 
+			
 			if(v[i][j].idAgregacao != 0){ //tem agregacao alocada nesse horario
+
+				//Aulas|Agregações com N alunos devem ser alocadas em salas com capacidade X, tal que X >= N. 
 				if(v[i][j].totalAlunos() > salas[i].capacidade){
 					total += PUNICAO_IMPOSSIVEL;
+					restricoesMultas["CAP"]++;
+				}
+
+				//Restrições de recursos obrigatórios.
+				vector<AgregacaoRecurso>::iterator it;
+				AgregacaoRecurso arTemp(0,0,0);
+				int quantidade;
+
+				for(it=v[i][j].recursosObrigatorios.begin() ; it < v[i][j].recursosObrigatorios.end(); it++) {
+				    arTemp = *it;
+				    
+				    if(arTemp.quantidade > salas[i].buscarRecurso(arTemp.idRecurso)){
+				    	total += PUNICAO_IMPOSSIVEL;
+				    	restricoesMultas["RECOB"]++;
+				    }
 				}
 			}
 		}
 	}
 
-	
-
 	//Duas aulas de uma mesma turma não podem ocorrer simultaneamente.
+	int h1, h2;
+	vector<int> intersecaoTurmas;
+
+	restricoesMultas["AULSIM"] = 0;
+	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
+			h1 = j;
+
+			while(v[i][h1].idAgregacao == -1) h1--;
+
+			for(int k=i+1; k<salas.size()+totalSalasVirtuais; k++){
+				h2 = j;
+				while(v[k][h2].idAgregacao == -1) h2--;
+
+				intersecaoTurmas.clear();
+				set_intersection(v[i][h1].idTurmas.begin(),v[i][h1].idTurmas.end(),v[k][h2].idTurmas.begin(),v[k][h2].idTurmas.end(),back_inserter(intersecaoTurmas));
+
+				if(intersecaoTurmas.size() > 0){
+					total += PUNICAO_IMPOSSIVEL;
+					restricoesMultas["AULSIM"]++;
+				}
+			}
+		}
+	}
+
+
+	//Duas aulas de disciplinas do mesmo periodo não devem ocorrer simultaneamente
+	vector<string> pp1;
+	set<string> pp2;
+
+	restricoesMultas["DISCSIM"] = 0;
+	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		pp1.clear();
+		pp2.clear();
+
+		for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
+			h1 = j;
+
+			while(v[i][h1].idAgregacao == -1) h1--;
+
+			pp1.insert(pp1.end(),v[i][h1].periodosPreferenciais.begin(),v[i][h1].periodosPreferenciais.end());
+		}
+
+		unsigned size = pp1.size();
+		for( unsigned i = 0; i < size; ++i ) pp2.insert( pp1[i] );
+
+		if(pp1.size() != pp2.size()){
+		 	total += PUNICAO_IMPOSSIVEL;
+		 	restricoesMultas["DISCSIM"]++;
+		}
+	}
+
+	//Professor não pode dar duas aulas simultaneamente
+	vector<int> p1;
+	set<int> p2;
+
+	restricoesMultas["PROFSIM"] = 0;
+	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		p1.clear();
+		p2.clear();
+
+		for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
+			h1 = j;
+
+			while(v[i][h1].idAgregacao == -1) h1--;
+
+			if(v[i][h1].idProfessor > 0){
+				p1.push_back(v[i][h1].idProfessor);
+				p2.insert(v[i][h1].idProfessor);
+			}
+		}
+
+		if(p1.size() != p2.size()){
+			total += PUNICAO_IMPOSSIVEL;
+			restricoesMultas["PROFSIM"]++;
+		}
+	}
+	
+	//Sala deve estar disponível no horário da aula
+	//Resolvido pela estrutura
 
 	//Possíveis Horários pré-estabelecidos
 
-	//Restrições de recursos obrigatórios.
-
-	//Sala deve estar disponível no horário da aula [TALVEZ POSSA USAR A ESTRUTURA ENXENDO A SALA DE VALORES NEGATIVOS COMO -2]
+	restricoesMultas["HORPRE"] = 0;
+	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
+			if(v[i][j].idAgregacao > 0){
+				if (find(v[i][j].temposAulaString.begin(), v[i][j].temposAulaString.end(), mapaTemposAulasInvertido[j]) == v[i][j].temposAulaString.end() ){
+					total += PUNICAO_IMPOSSIVEL;
+					restricoesMultas["HORPRE"]++;
+				}
+			}
+		}
+	}
 
 
 	//[NÃO OBRIGATÓRIOS]
 
-	//Aulas devem, preferencialmente, ser alocadas em salas com capacidade igual ou o mais próximo possível da sua necessidade. O mesmo vale para todas as outras restrições[CAP]
+	//Aulas devem, preferencialmente, ser alocadas em salas com capacidade igual ou o mais próximo possível da sua necessidade. 
 
-	//Aulas sequenciais de turmas do mesmo período devem, preferencialmente, serem alocadas na mesma sala ou em salas próximas, evitando o deslocamento em grandes distâncias[SALAPROX]
+	//Aulas devem, preferencialmente, serem alocadas em salas com recursos iguais ou o mais próximo possível da sua necessidade.
 
-	//Aulas da mesma turma devem ser na mesma sala[MSMPERIODO]
-
-	//Aulas do mesmo professor devem ser na mesma sala (vantagem da chave) [MSMPROF]
+	//Aulas de turmas do mesmo período devem, preferencialmente, serem alocadas na mesma sala ou em salas próximas, evitando o deslocamento em grandes distâncias[SALAPROX]
 
 	//Restrições de recursos NÃO-obrigatórios. [RECDISP] [RECNECE] [RECALTNECE]
 
+	//Aulas do mesmo professor devem ser na mesma sala (vantagem da chave) [MSMPROF]
+
 	//Gerar intervalos entre aulas na mesma sala para dar tempo de limpeza[INTERVLIMP]
+
+	//Evitar aulas no N5 N6
 
 	return total;
 }
@@ -566,6 +773,10 @@ void geraNovaSolucao(){
 			Agregacao tmp = solucaoGerada[ai][aj];
 			solucaoGerada[ai][aj] = solucaoGerada[bi][bj];
 			solucaoGerada[bi][bj] = tmp;
+		}else{
+			geraNovaSolucao();
 		}
+	}else{
+		geraNovaSolucao();
 	}
 }
