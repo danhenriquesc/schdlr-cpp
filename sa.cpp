@@ -16,14 +16,16 @@
 #include <algorithm>
 
 const double EulerConstant = std::exp(1.0);
-#define PUNICAO_IMPOSSIVEL 100
-#define PUNICAO_LVL1 7
-#define PUNICAO_LVL2 6
-#define PUNICAO_LVL3 5
-#define PUNICAO_LVL4 4
-#define PUNICAO_LVL5 3
-#define PUNICAO_LVL6 2
-#define PUNICAO_LVL7 1
+#define PUNICAO_IMPOSSIVEL 10000
+#define PUNICAO_LVL1 9
+#define PUNICAO_LVL2 8
+#define PUNICAO_LVL3 7
+#define PUNICAO_LVL4 6
+#define PUNICAO_LVL5 5
+#define PUNICAO_LVL6 4
+#define PUNICAO_LVL7 3
+#define PUNICAO_LVL8 2
+#define PUNICAO_LVL9 1
 
 using namespace std;
 
@@ -150,9 +152,12 @@ class Agregacao{
 			idTurmas.push_back(a.idTurma);
 			sort(idTurmas.begin(),idTurmas.end());
 
-			ostringstream oss;
-			oss << a.idCursoPreferencial << "_" << a.periodoCursoPrefencial;
-			periodosPreferenciais.push_back(oss.str());
+			if(a.idCursoPreferencial > 0){
+				ostringstream oss;
+				oss << a.idCursoPreferencial << "_" << a.periodoCursoPrefencial;
+				//cout << oss.str() << endl;
+				periodosPreferenciais.push_back(oss.str());
+			}
 
 			return 0;
 		}
@@ -209,6 +214,10 @@ map<string, int> pesosRestricoes; // Pesos das restricoes
 vector< vector<Agregacao> > solucao; //Solução Atual
 vector< vector<Agregacao> > solucaoMelhor; //Melhor Solução
 vector< vector<Agregacao> > solucaoGerada; //Solução Gerada
+
+map<int, pair<int,int>> agregacoesMultiplosHorarios;
+vector<int> agregacoesMultiplosHorariosLista;
+
 int totalSalasVirtuais = 4;
 int totalTemposDiarios = 18; //6 MANHÃ | 6 TARDE | 6 NOITE
 int totalDiasAulas = 7;
@@ -220,6 +229,8 @@ void imprimirSolucao(vector< vector<Agregacao> >);
 void gerarSolucaoInicial();
 int calcularValor(vector< vector<Agregacao> >);
 void geraNovaSolucao();
+void trocarSala();
+void trocarHorario(int);
 
 void marcarTempo(string tag){
  // time_t t = time(0);   // get time now
@@ -244,7 +255,9 @@ void marcarTempo(string tag){
 }
 
 int main(){
-	srand(time(NULL));
+	unsigned int seed = time(NULL);
+	cout << "SEMENTE ALEATÓRIA = " << seed << endl;
+	srand(seed);
 	
 	marcarTempo("LEITURA");
 	carregarDados("entradateste.json");
@@ -255,44 +268,53 @@ int main(){
 
 	//Simulated Annealing Variaveis
 	int nIter = 0;
-	int maxIter = 25000;
-	double T = 35;
+	int maxIter = 5000;
+	double T = 5;
 	int delta;
-	double alfa = 0.99;
+	double alfa = 0.7;
 	double x;
 	int sg, sm, ss;
 
 	//Calculado temperatura inicial
 	int accepted = 0;
 	double perc = 0;
-	// T = 10;
-	//maxIter = 5000;
+	// T = 1;
+	//maxIter = 1000;
 	//int deltaSum = 0;
-	// alfa = 0.001;
+	// alfa = 0.8;
 	
 
 	//imprimirSolucao(solucao);
 	solucaoMelhor = solucao;
 
+	ss = calcularValor(solucao);
+	sm = calcularValor(solucaoMelhor);
+
 	//marcarTempo("INÍCIO SA");
-	cout << "Temperatura;Percentual;Aceito;Custo;Restrições Violadas;Salas Virtuais;Sala Pre-Def.;Cap. Sala;Rec. Obr.;Aulas Turma Simult.;Disc. Per. Simult.;Prof. Simult.;Hor. Pre-Def" << endl;
+	//cout << "Temperatura;Percentual;Aceito;Custo;Restrições Graves;Restrições Leves;Salas Virtuais;Sala Pre-Def.;Cap. Sala;Rec. Obr.;Aulas Turma Simult.;Disc. Per. Simult.;Prof. Simult.;Hor. Pre-Def" << endl;
+
+	int itTotal = 0;
 
 	while(T>0.00001){
 		accepted = 0;
 
 		while(nIter < maxIter){
 			nIter++;
-			geraNovaSolucao();
+			itTotal++;
+			if(nIter%100 < 90)
+				trocarSala();
+			else
+				trocarHorario(0);
 
-			ss = calcularValor(solucao);
 			sg = calcularValor(solucaoGerada);
-			sm = calcularValor(solucaoMelhor);
 
 			delta = sg - ss;
+
 			// if(delta != 0)
 			// 	cout << "DELTA = " << delta << " | " << nIter  << " | " << T << endl;
 			if(delta < 0){
 				solucao = solucaoGerada;
+				ss = sg;
 
 				//cout << nIter << " | " << sg << " | "<< sm << endl;
 
@@ -310,13 +332,15 @@ int main(){
 
 				if(x < pow(EulerConstant, (double) -delta/T)){
 					solucao = solucaoGerada;
+					ss = sg;
 					accepted++;
 				}/*else{
 					cout << x << " < " << pow(EulerConstant, (double) -delta/T) << "exp(" << (double) (-delta/T) << ")" << endl;
 				}*/
 			}
-			perc = (accepted*100)/nIter;
-			cout << T << ";" << perc << ";" << accepted << "/" << nIter << ";"<<sm<<";"<<(sm/100)<<";"<<restricoesMultas["SV"]<<";"<<restricoesMultas["SPD"]<<";"<<restricoesMultas["CAP"]<<";"<<restricoesMultas["RECOB"]<<";"<<restricoesMultas["AULSIM"]<<";"<<restricoesMultas["DISCSIM"]<<";"<<restricoesMultas["PROFSIM"]<<";" << restricoesMultas["HORPRE"] << endl;
+			//perc = (accepted*100)/nIter;
+			//cout << T << ";" << perc << ";" << accepted << "/" << nIter << ";"<<sm<<";"<<restricoesMultas["TotalGrave"]<<";"<<restricoesMultas["TotalLeve"]<<";"<<restricoesMultas["SV"]<<";"<<restricoesMultas["SPD"]<<";"<<restricoesMultas["CAP"]<<";"<<restricoesMultas["RECOB"]<<";"<<restricoesMultas["AULSIM"]<<";"<<restricoesMultas["DISCSIM"]<<";"<<restricoesMultas["PROFSIM"]<<";" << restricoesMultas["HORPRE"] << endl;
+			cout << itTotal << ";" << T << ";" << sm << ";" << ss << endl;
 		}
 
 		//perc = (accepted*100)/maxIter;
@@ -481,7 +505,12 @@ void imprimirSolucao(vector< vector<Agregacao> > s){
 		cout << endl << mapaTemposAulasInvertido[j] << ";";
 		
 		for(i=0; i<(salas.size()+totalSalasVirtuais); i++){
-			cout << s[i][j].idAgregacao << "[" << s[i][j].totalAlunos() << "];";
+			if(s[i][j].idAgregacao>0 && s[i][j].periodosPreferenciais.size()>0){
+				cout << s[i][j].idAgregacao << "[" << s[i][j].totalAlunos() << "] [" << s[i][j].periodosPreferenciais[0]<< "];";
+			}
+			else{
+				cout << s[i][j].idAgregacao << "[" << s[i][j].totalAlunos() << "];";
+			}
 		}
 	}
 
@@ -524,20 +553,45 @@ void gerarSolucaoInicial(){
 		solucao.push_back(linhaTemp);
 	}
 
-	for(agregacaoIt = agregacoes.begin(), i = 0, j = 0; agregacaoIt < agregacoes.end(); agregacaoIt++){
+	int rand_index;
+	for(agregacaoIt = agregacoes.begin(), i=0, j=0; agregacaoIt < agregacoes.end(); agregacaoIt++){
 		ok = true;
 		tempos = agregacaoIt->tempos;
+		rand_index = rand()%agregacaoIt->temposAula.size();
+		
+		string tempoAulaStr = agregacaoIt->temposAula[rand_index].dia;
+
+		ostringstream oss;
+		oss << agregacaoIt->temposAula[rand_index].dia << agregacaoIt->temposAula[rand_index].horario;
+		int tempoAula = mapaTemposAulas[oss.str()];
+		j = tempoAula;
 
 		if(j+tempos < totalTemposDiarios*totalDiasAulas){
 			vazio = true;
+			while(agregacaoIt->totalAlunos() > salas[i].capacidade){
+				i++;
+			}
+
+			if(i >= (salas.size()+totalSalasVirtuais)){
+				i = 0;
+				//cout << "SALAS INSUFICIENTES NO HORARIO " << mapaTemposAulasInvertido[j] << endl;
+			}
+
 			for(int k=0; k<tempos;k++){
 				if(solucao[i][j+k].idAgregacao != 0) vazio = false;
 			}
+
 			if(vazio){
 				solucao[i][j] = *agregacaoIt;
+				if(agregacaoIt->temposAula.size() > 1){
+					agregacoesMultiplosHorarios[agregacaoIt->idAgregacao] = {i,j};
+					agregacoesMultiplosHorariosLista.push_back(agregacaoIt->idAgregacao);
+				}
+
 				for(int k=1; k<tempos;k++){
 					solucao[i][j+k] = Agregacao(-1,0,0,0);
 				}	
+				i = 0;
 			}else{
 				ok = false;
 			}
@@ -548,11 +602,7 @@ void gerarSolucaoInicial(){
 		i++;
 		if(i >= (salas.size()+totalSalasVirtuais)){
 			i = 0;
-			j++;
-		}
-		if(j >= totalTemposDiarios*totalDiasAulas){
-			cout << "SALAS INSUFICIENTES" << endl;
-			break;
+			//cout << "SALAS INSUFICIENTES NO HORARIO " << mapaTemposAulasInvertido[j] << endl;
 		}
 
 		if(!ok){
@@ -572,6 +622,9 @@ int calcularValor(vector< vector<Agregacao> > v){
 	//Uma sala só pode ter uma agregação por vez
 	//Resolvida pela estrutura
 
+	restricoesMultas["TotalGrave"] = 0;
+	restricoesMultas["TotalLeve"] = 0;
+
 	//Nao ter aulas em Salas Virtuais
 	restricoesMultas["SV"] = 0;
 	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
@@ -579,6 +632,7 @@ int calcularValor(vector< vector<Agregacao> > v){
 			if(v[i][j].idAgregacao != 0){
 				total += PUNICAO_IMPOSSIVEL;
 				restricoesMultas["SV"]++;
+				restricoesMultas["TotalGrave"]++;
 			}
 		}
 	}
@@ -588,28 +642,27 @@ int calcularValor(vector< vector<Agregacao> > v){
 	restricoesMultas["RECOB"] = 0;
 	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
 		for(int i=0; i<salas.size(); i++){
+			if(v[i][j].idAgregacao > 0){ //tem agregacao alocada nesse horario
 
-			//Aula PODE SER em Sala Pré-definida.
-			if(v[i][j].idSala != 0){ //agregacao exige sala pre-definida
-				if(v[i][j].idSala != salas[i].idSala){
-					total += PUNICAO_IMPOSSIVEL;
-					restricoesMultas["SPD"]++;
+				//Aula PODE SER em Sala Pré-definida.
+				if(v[i][j].idSala != 0){ //agregacao exige sala pre-definida
+					if(v[i][j].idSala != salas[i].idSala){
+						total += PUNICAO_IMPOSSIVEL;
+						restricoesMultas["SPD"]++;
+						restricoesMultas["TotalGrave"]++;
+					}
 				}
-			}
-
-			
-			if(v[i][j].idAgregacao != 0){ //tem agregacao alocada nesse horario
 
 				//Aulas|Agregações com N alunos devem ser alocadas em salas com capacidade X, tal que X >= N. 
 				if(v[i][j].totalAlunos() > salas[i].capacidade){
 					total += PUNICAO_IMPOSSIVEL;
 					restricoesMultas["CAP"]++;
+					restricoesMultas["TotalGrave"]++;
 				}
 
 				//Restrições de recursos obrigatórios.
 				vector<AgregacaoRecurso>::iterator it;
 				AgregacaoRecurso arTemp(0,0,0);
-				int quantidade;
 
 				for(it=v[i][j].recursosObrigatorios.begin() ; it < v[i][j].recursosObrigatorios.end(); it++) {
 				    arTemp = *it;
@@ -617,6 +670,7 @@ int calcularValor(vector< vector<Agregacao> > v){
 				    if(arTemp.quantidade > salas[i].buscarRecurso(arTemp.idRecurso)){
 				    	total += PUNICAO_IMPOSSIVEL;
 				    	restricoesMultas["RECOB"]++;
+				    	restricoesMultas["TotalGrave"]++;
 				    }
 				}
 			}
@@ -644,6 +698,7 @@ int calcularValor(vector< vector<Agregacao> > v){
 				if(intersecaoTurmas.size() > 0){
 					total += PUNICAO_IMPOSSIVEL;
 					restricoesMultas["AULSIM"]++;
+					restricoesMultas["TotalGrave"]++;
 				}
 			}
 		}
@@ -671,8 +726,19 @@ int calcularValor(vector< vector<Agregacao> > v){
 		for( unsigned i = 0; i < size; ++i ) pp2.insert( pp1[i] );
 
 		if(pp1.size() != pp2.size()){
+			// cout << endl << endl;
+			// for (auto i = pp1.begin(); i != pp1.end(); ++i)
+   //  			cout << *i << ' ';
+
+   //  		cout << endl;
+   //  		for (auto i = pp2.begin(); i != pp2.end(); ++i)
+   //  			cout << *i << ' ';
+
+   //  		cout << endl << endl;
+
 		 	total += PUNICAO_IMPOSSIVEL;
 		 	restricoesMultas["DISCSIM"]++;
+		 	restricoesMultas["TotalGrave"]++;
 		}
 	}
 
@@ -699,6 +765,7 @@ int calcularValor(vector< vector<Agregacao> > v){
 		if(p1.size() != p2.size()){
 			total += PUNICAO_IMPOSSIVEL;
 			restricoesMultas["PROFSIM"]++;
+			restricoesMultas["TotalGrave"]++;
 		}
 	}
 	
@@ -706,35 +773,189 @@ int calcularValor(vector< vector<Agregacao> > v){
 	//Resolvido pela estrutura
 
 	//Possíveis Horários pré-estabelecidos
+	//Resolvido pela estrutura
 
 	restricoesMultas["HORPRE"] = 0;
+	// for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+	// 	for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
+	// 		if(v[i][j].idAgregacao > 0){
+	// 			if (find(v[i][j].temposAulaString.begin(), v[i][j].temposAulaString.end(), mapaTemposAulasInvertido[j]) == v[i][j].temposAulaString.end() ){
+	// 				total += PUNICAO_IMPOSSIVEL;
+	// 				restricoesMultas["HORPRE"]++;
+	// 				restricoesMultas["TotalGrave"]++;
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+
+	//[NÃO OBRIGATÓRIOS]
+	
+	int multaParcial;
 	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		for(int i=0; i<salas.size(); i++){
+			if(v[i][j].idAgregacao > 0){ //tem agregacao alocada nesse horario
+
+				//Aulas devem, preferencialmente, ser alocadas em salas com capacidade igual ou o mais próximo possível da sua necessidade. 
+				multaParcial = 0;
+
+				if(salas[i].capacidade > v[i][j].totalAlunos())
+					multaParcial = (salas[i].capacidade-v[i][j].totalAlunos())/10;
+
+				total += multaParcial * PUNICAO_LVL4;
+				restricoesMultas["TotalLeve"] = restricoesMultas["TotalLeve"] + multaParcial * PUNICAO_LVL4;
+
+
+				//Aulas devem, preferencialmente, serem alocadas em salas com recursos iguais ou o mais próximo possível da sua necessidade.
+				vector<AgregacaoRecurso>::iterator it;
+				AgregacaoRecurso arTemp(0,0,0);
+
+				for(it=v[i][j].recursosObrigatorios.begin() ; it < v[i][j].recursosObrigatorios.end(); it++) {
+				    arTemp = *it;
+			
+					multaParcial = 0;	
+
+					if(salas[i].buscarRecurso(arTemp.idRecurso) > arTemp.quantidade)
+						multaParcial = salas[i].buscarRecurso(arTemp.idRecurso)/arTemp.quantidade - 1;
+
+					total += multaParcial * PUNICAO_LVL3;
+					restricoesMultas["TotalLeve"] = restricoesMultas["TotalLeve"] + multaParcial * PUNICAO_LVL3;
+				}
+
+				for(it=v[i][j].recursosOpcionais.begin() ; it < v[i][j].recursosOpcionais.end(); it++) {
+				    arTemp = *it;
+			
+					multaParcial = 0;	
+
+					if(salas[i].buscarRecurso(arTemp.idRecurso) > arTemp.quantidade)
+						multaParcial = (salas[i].buscarRecurso(arTemp.idRecurso)*10)/arTemp.quantidade - 10;
+
+					total += multaParcial * PUNICAO_LVL3;
+					restricoesMultas["TotalLeve"] = restricoesMultas["TotalLeve"] + multaParcial * PUNICAO_LVL3;
+				}
+
+				//Restrições de recursos NÃO-obrigatórios. [RECDISP] [RECNECE] [RECALTNECE]
+				AgregacaoRecurso arTemp2(0,0,0);
+
+				multaParcial = 0;
+				int punicao = 0;
+				for(it=v[i][j].recursosOpcionais.begin() ; it < v[i][j].recursosOpcionais.end(); it++) {
+				    arTemp2 = *it;
+
+				    if(arTemp2.flexibilidade == 3)
+				    	punicao = PUNICAO_LVL1;
+				    else if(arTemp2.flexibilidade == 2)
+				    	punicao = PUNICAO_LVL5;
+				    else if(arTemp2.flexibilidade == 1)
+				    	punicao = PUNICAO_LVL9;
+
+				    if(arTemp2.quantidade > salas[i].buscarRecurso(arTemp2.idRecurso)){
+				    	total += punicao;	
+				    	restricoesMultas["TotalLeve"] += punicao;
+				    }
+				}
+			}
+		}
+	}	
+
+	//Aulas de turmas do mesmo período devem, preferencialmente, serem alocadas na mesma sala ou em salas próximas, evitando o deslocamento em grandes distâncias[SALAPROX]
+	int f;
+	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		if(!((j+1)%(totalTemposDiarios)) ) continue;
+
 		for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
-			if(v[i][j].idAgregacao > 0){
-				if (find(v[i][j].temposAulaString.begin(), v[i][j].temposAulaString.end(), mapaTemposAulasInvertido[j]) == v[i][j].temposAulaString.end() ){
-					total += PUNICAO_IMPOSSIVEL;
-					restricoesMultas["HORPRE"]++;
+			if ( (v[i][j].idAgregacao != 0) && (v[i][j].idAgregacao != -2) && (v[i][j+1].idAgregacao != -1) && (v[i][j+1].idAgregacao != -2) ){
+				f = j;
+				while(v[i][f].idAgregacao == -1){
+					f--;
+				}
+
+				sort(v[i][f].periodosPreferenciais.begin(), v[i][f].periodosPreferenciais.end());
+				for(int k=0; k<salas.size()+totalSalasVirtuais; k++){
+					if( (v[k][j+1].idAgregacao == 0) || (v[k][j+1].idAgregacao == -2) ) continue;
+
+					vector<string> intersecao;
+					
+					sort(v[k][j+1].periodosPreferenciais.begin(), v[k][j+1].periodosPreferenciais.end());
+					set_intersection(v[i][f].periodosPreferenciais.begin(), v[i][f].periodosPreferenciais.end(),v[k][j+1].periodosPreferenciais.begin(), v[k][j+1].periodosPreferenciais.end(),back_inserter(intersecao));
+
+					if(intersecao.size() > 0){
+						if(i!=k){
+							multaParcial = abs(salas[i].numero - salas[k].numero)/10;
+							total += multaParcial * PUNICAO_LVL2;
+							restricoesMultas["TotalLeve"] += multaParcial * PUNICAO_LVL2;
+							//break;
+						}
+					}
+
 				}
 			}
 		}
 	}
 
 
-	//[NÃO OBRIGATÓRIOS]
-
-	//Aulas devem, preferencialmente, ser alocadas em salas com capacidade igual ou o mais próximo possível da sua necessidade. 
-
-	//Aulas devem, preferencialmente, serem alocadas em salas com recursos iguais ou o mais próximo possível da sua necessidade.
-
-	//Aulas de turmas do mesmo período devem, preferencialmente, serem alocadas na mesma sala ou em salas próximas, evitando o deslocamento em grandes distâncias[SALAPROX]
-
-	//Restrições de recursos NÃO-obrigatórios. [RECDISP] [RECNECE] [RECALTNECE]
-
 	//Aulas do mesmo professor devem ser na mesma sala (vantagem da chave) [MSMPROF]
+	for(int j=0; j<totalTemposDiarios*totalDiasAulas;j++){
+		if(!((j+1)%(totalTemposDiarios)) ) continue;
+
+		for(int i=0; i<salas.size()+totalSalasVirtuais; i++){
+			if ( (v[i][j].idAgregacao != 0) && (v[i][j].idAgregacao != -2) && (v[i][j+1].idAgregacao != -1) && (v[i][j+1].idAgregacao != -2) ){
+				f = j;
+				while(v[i][f].idAgregacao == -1){
+					f--;
+				}
+
+				if(v[i][f].idProfessor <= 0) continue;
+
+				for(int k=0; k<salas.size()+totalSalasVirtuais; k++){
+					if( (v[k][j+1].idAgregacao == 0) || (v[k][j+1].idAgregacao == -2) || (v[k][j+1].idProfessor <= 0) ) continue;
+
+					if(v[i][f].idProfessor == v[k][j+1].idProfessor){
+						if(i!=k){
+							total += PUNICAO_LVL6;
+							restricoesMultas["TotalLeve"] += PUNICAO_LVL6;
+							break;
+						}
+					}
+
+				}
+			}
+		}
+	}
 
 	//Gerar intervalos entre aulas na mesma sala para dar tempo de limpeza[INTERVLIMP]
+	int aulastotais;
+	for(int i=0; i<salas.size(); i++){
+
+		for(int k=0; k<totalDiasAulas; k++){
+			aulastotais = 0;
+			for(int j=k*totalTemposDiarios+2; j<(k+1)*totalTemposDiarios;j++){
+				if(v[i][j].idAgregacao > 0){
+					aulastotais++;
+				}
+			}
+
+			if(aulastotais >= 16){
+				total += PUNICAO_LVL7;
+				restricoesMultas["TotalLeve"] += PUNICAO_LVL8;
+			}
+		}
+	}
 
 	//Evitar aulas no N5 N6
+	for(int j=totalTemposDiarios-2; j<totalTemposDiarios*totalDiasAulas;j+=totalTemposDiarios){
+		for(int i=0; i<salas.size(); i++){
+			if(v[i][j].idAgregacao != 0 && v[i][j].idAgregacao != -1){
+				total += PUNICAO_LVL7;
+				restricoesMultas["TotalLeve"] += PUNICAO_LVL7;
+			}
+
+			if(v[i][j+1].idAgregacao != 0 && v[i][j+1].idAgregacao != -1){
+				total += PUNICAO_LVL7;
+				restricoesMultas["TotalLeve"] += PUNICAO_LVL7;
+			}
+		}
+	}
 
 	return total;
 }
@@ -778,5 +999,131 @@ void geraNovaSolucao(){
 		}
 	}else{
 		geraNovaSolucao();
+	}
+}
+
+void trocarSala(){
+	int ai, aj, bi, bj;
+	int totSalas = salas.size()+totalSalasVirtuais;
+	int totAulas = totalTemposDiarios*totalDiasAulas;
+	int maxTempos, iTmp;
+	bool ok;
+
+	solucaoGerada = solucao;
+
+	ai = rand()%totSalas;
+	aj = rand()%totAulas;
+	bi = rand()%totSalas;
+	bj = aj;
+
+	if((solucaoGerada[ai][aj].idAgregacao >= 0) && (solucaoGerada[bi][bj].idAgregacao >=0)){
+		maxTempos = max(solucaoGerada[ai][aj].tempos,solucaoGerada[bi][bj].tempos);
+
+		ok = true;
+		for(int k=1;k<maxTempos;k++){
+			if((solucaoGerada[ai][aj+k].idAgregacao!=0) && (solucaoGerada[ai][aj+k].idAgregacao!=-1)) ok = false;
+			if((solucaoGerada[bi][bj+k].idAgregacao!=0) && (solucaoGerada[bi][bj+k].idAgregacao!=-1)) ok = false;
+		}
+		if((aj + maxTempos > totAulas) || (bj + maxTempos > totAulas)) ok = false;
+
+		if(ok){
+			for(int k=1;k<maxTempos;k++){
+				iTmp = solucaoGerada[ai][aj+k].idAgregacao;
+				solucaoGerada[ai][aj+k].idAgregacao = solucaoGerada[bi][bj+k].idAgregacao;
+				solucaoGerada[bi][bj+k].idAgregacao = iTmp;
+			}
+
+			Agregacao tmp = solucaoGerada[ai][aj];
+			solucaoGerada[ai][aj] = solucaoGerada[bi][bj];
+			solucaoGerada[bi][bj] = tmp;
+		}else{
+			trocarSala();
+		}
+	}else{
+		trocarSala();
+	}
+}
+void trocarHorario(int rep){
+	if(rep < 10){
+
+		vector<string>::iterator it;
+		string ta;
+
+		int ai, aj, bi, bj;
+
+		int totSalas = salas.size()+totalSalasVirtuais;
+		int totAulas = totalTemposDiarios*totalDiasAulas;
+
+		int maxTempos, iTmp;
+		bool ok, lvl1;
+
+		int randInt;
+
+		solucaoGerada = solucao;
+
+		//agregacoesMultiplosHorarios[agregacaoIt->idAgregacao].second;
+		//agregacoesMultiplosHorariosLista
+
+		int indice = agregacoesMultiplosHorariosLista[rand()%agregacoesMultiplosHorariosLista.size()];
+
+		// ai = rand()%totSalas;
+		// aj = rand()%totAulas;
+		ai = agregacoesMultiplosHorarios[indice].first;
+		aj = agregacoesMultiplosHorarios[indice].second;
+
+		//bi = ai;
+		bi = rand()%totSalas;
+
+		lvl1 = false;
+
+		if(solucaoGerada[ai][aj].idAgregacao > 0){
+
+			if(solucaoGerada[ai][aj].temposAulaString.size() > 1){
+				randInt = rand() % ( solucaoGerada[ai][aj].temposAulaString.size());
+
+				bj = mapaTemposAulas[solucaoGerada[ai][aj].temposAulaString[randInt]];
+				lvl1 = true;
+			}else{
+				trocarHorario(++rep);
+			}
+		}else{
+			trocarHorario(++rep);
+		}
+
+
+		if(lvl1){
+			// cout << ai << "x" << aj << " | " << bi << "x" << bj << "|" << solucaoGerada[ai][aj].idAgregacao << "|" << solucaoGerada[bi][bj].idAgregacao << endl;
+
+			if((solucaoGerada[ai][aj].idAgregacao >= 0) && (solucaoGerada[bi][bj].idAgregacao ==0)){
+				//cout << "ta" << endl;
+				maxTempos = max(solucaoGerada[ai][aj].tempos,solucaoGerada[bi][bj].tempos);
+
+				ok = true;
+				for(int k=1;k<maxTempos;k++){
+					if((solucaoGerada[ai][aj+k].idAgregacao!=0) && (solucaoGerada[ai][aj+k].idAgregacao!=-1)) ok = false;
+					if((solucaoGerada[bi][bj+k].idAgregacao!=0) && (solucaoGerada[bi][bj+k].idAgregacao!=-1)) ok = false;
+				}
+				if((aj + maxTempos > totAulas) || (bj + maxTempos > totAulas)) ok = false;
+
+				if(ok){
+					for(int k=1;k<maxTempos;k++){
+						iTmp = solucaoGerada[ai][aj+k].idAgregacao;
+						solucaoGerada[ai][aj+k].idAgregacao = solucaoGerada[bi][bj+k].idAgregacao;
+						solucaoGerada[bi][bj+k].idAgregacao = iTmp;
+					}
+
+					Agregacao tmp = solucaoGerada[ai][aj];
+					solucaoGerada[ai][aj] = solucaoGerada[bi][bj];
+					solucaoGerada[bi][bj] = tmp;
+
+					//cout << "trocou" << endl;
+				}else{
+					trocarHorario(++rep);
+				}
+			}else{
+				trocarHorario(++rep);
+			}
+		}
+
 	}
 }
